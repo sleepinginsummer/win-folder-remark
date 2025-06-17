@@ -1,0 +1,20 @@
+# 文件夹备注工具依赖列表
+# Folder Remark Tool Dependencies
+
+# 构建可执行文件所需
+pyinstaller>=5.0
+
+# Windows系统集成（可选，通常系统已包含）
+# pywin32>=227
+
+# 注意事项：
+# 1. tkinter 是Python标准库的一部分，无需单独安装
+# 2. configparser, subprocess, pathlib, tempfile, shutil, datetime 都是标准库
+# 3. os, sys, argparse, json 也都是标准库
+# 4. 如果在某些系统上缺少win32com，可以取消注释pywin32行
+
+# Notes:
+# 1. tkinter is part of Python standard library, no separate installation needed
+# 2. configparser, subprocess, pathlib, tempfile, shutil, datetime are all standard libraries
+# 3. os, sys, argparse, json are also standard libraries  
+# 4. If win32com is missing on some systems, uncomment the pywin32 line 
