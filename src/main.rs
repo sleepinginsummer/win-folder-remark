@@ -58,6 +58,7 @@ struct RemarkApp {
     target_dir: PathBuf,
     input: String,
     status: String,
+    font_diag: String,
     lang: LangPack,
     last_error: Option<String>,
     close_at: Option<Instant>,
@@ -79,6 +80,7 @@ impl RemarkApp {
             target_dir,
             input,
             status,
+            font_diag: String::new(),
             lang,
             last_error,
             close_at: None,
@@ -113,6 +115,8 @@ impl eframe::App for RemarkApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.fonts_applied {
             apply_fonts(ctx);
+            // 首帧生成字体诊断信息，便于定位是否真的加载到中文字体
+            self.font_diag = build_font_diag(ctx);
             self.fonts_applied = true;
         }
         apply_theme(ctx);
@@ -162,6 +166,10 @@ impl eframe::App for RemarkApp {
                 ui.add_space(10.0);
                 ui.colored_label(egui::Color32::from_rgb(110, 110, 110), &self.status);
             }
+            if !self.font_diag.is_empty() {
+                ui.add_space(6.0);
+                ui.colored_label(egui::Color32::from_rgb(90, 90, 90), &self.font_diag);
+            }
         });
     }
 }
@@ -196,11 +204,12 @@ fn apply_theme(ctx: &egui::Context) {
 /// 应用中文字体，避免输入中文显示方块
 fn apply_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    if let Some((name, data)) = load_system_font() {
-        // 将系统中文字体插入到字体列表最前，优先渲染中文字符
+    // 仅使用内置字体，避免系统字体解析异常导致崩溃
+    if let Some((name, data)) = load_builtin_font() {
+        // 内置字体作为最终兜底，避免系统字体缺失导致乱码
         fonts.font_data.insert(name.clone(), data);
         if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-            family.insert(0, name.clone());
+            family.push(name.clone());
         }
         if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
             family.push(name);
@@ -209,19 +218,37 @@ fn apply_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// 从系统字体目录加载可用的中文字体
-fn load_system_font() -> Option<(String, egui::FontData)> {
+/// 从系统字体目录加载可用的中文字体集合
+fn load_system_fonts() -> Vec<(String, egui::FontData)> {
     let candidates = [
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\msyh.ttf",
         r"C:\Windows\Fonts\simhei.ttf",
+        r"C:\Windows\Fonts\simfang.ttf",
+        r"C:\Windows\Fonts\msyh.ttf",
+        r"C:\Windows\Fonts\msyhl.ttc",
+        r"C:\Windows\Fonts\msyh.ttc",
         r"C:\Windows\Fonts\simsun.ttc",
     ];
+    let mut fonts = Vec::new();
     for path in candidates {
         match fs::read(path) {
             Ok(bytes) => {
-                let name = format!("sys_cn_{}", path.replace(['\\', ':', '.'], "_"));
-                return Some((name, egui::FontData::from_owned(bytes)));
+                let is_ttc = path.to_ascii_lowercase().ends_with(".ttc");
+                if is_ttc {
+                    // ttc 可能包含多个字体面，依次尝试前几个索引
+                    for index in 0..4 {
+                        let name = format!(
+                            "sys_cn_{}_{}",
+                            path.replace(['\\', ':', '.'], "_"),
+                            index
+                        );
+                        let mut data = egui::FontData::from_owned(bytes.clone());
+                        data.index = index;
+                        fonts.push((name, data));
+                    }
+                } else {
+                    let name = format!("sys_cn_{}", path.replace(['\\', ':', '.'], "_"));
+                    fonts.push((name, egui::FontData::from_owned(bytes)));
+                }
             }
             Err(err) => {
                 // 如果读取失败则尝试下一个字体
@@ -229,5 +256,26 @@ fn load_system_font() -> Option<(String, egui::FontData)> {
             }
         }
     }
-    None
+    fonts
+}
+
+/// 加载内置中文字体作为兜底
+fn load_builtin_font() -> Option<(String, egui::FontData)> {
+    let bytes = include_bytes!("../assets/爱点风雅黑.ttf").to_vec();
+    if bytes.is_empty() {
+        return None;
+    }
+    let name = "builtin_cn_aidian_fangyahei".to_string();
+    Some((name, egui::FontData::from_owned(bytes)))
+}
+
+/// 构建字体诊断信息（检测中文字符是否可被当前字体渲染）
+fn build_font_diag(ctx: &egui::Context) -> String {
+    let sample = "中文测试";
+    let (prop_ok, mono_ok) = ctx.fonts(|fonts| {
+        let prop = fonts.has_glyphs(&egui::FontId::proportional(14.0), sample);
+        let mono = fonts.has_glyphs(&egui::FontId::monospace(14.0), sample);
+        (prop, mono)
+    });
+    format!("字体诊断：比例字体中文={}，等宽字体中文={}", prop_ok, mono_ok)
 }
